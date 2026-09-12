@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher gating: phone launcher by default, watch launcher on Wear OS -->
+    <bool name="phone_launcher">true</bool>
+    <bool name="watch_launcher">false</bool>
+
+    <!-- Watch UI -->
+    <string name="watch_status_running">运行中</string>
+    <string name="watch_status_stopped">已停止</string>
+    <string name="watch_toggle_start">启动</string>
+    <string name="watch_toggle_stop">停止</string>
+    <string name="watch_menu_profiles">配置</string>
+    <string name="watch_menu_proxy">节点</string>
+    <string name="watch_menu_profiles_update">更新订阅</string>
+    <string name="watch_menu_full_ui">完整界面</string>
+    <string name="watch_menu_crash_log">崩溃日志</string>
+    <string name="watch_crash_log_hint">点上方按钮读取最近一次崩溃的日志</string>
+    <string name="watch_no_profile">无配置\n用 clash:// 链接导入</string>
+    <string name="watch_ready">就绪</string>
+    <string name="watch_profiles_empty">暂无配置\n通过 clash://install-config?url=… 导入</string>
+    <string name="watch_profile_active">当前使用</string>
+    <string name="watch_profile_selected">已切换: %1$s</string>
+    <string name="watch_updating">正在更新…</string>
+    <string name="watch_update_done">更新完成</string>
+    <string name="watch_update_failed">更新失败</string>
+    <string name="watch_proxy_need_running">需先启动</string>
+</resources>

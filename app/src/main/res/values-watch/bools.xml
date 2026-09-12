@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On Wear OS the watch UI takes over the launcher -->
+    <bool name="phone_launcher">false</bool>
+    <bool name="watch_launcher">true</bool>
+</resources>

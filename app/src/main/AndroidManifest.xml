@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Wear Compose requires minSdk 25; the watch UI is only reachable on
+         Wear OS (API 25+), so overriding is safe for older phone installs. -->
+    <uses-sdk
+        tools:overrideLibrary="androidx.wear.compose.material.core,androidx.wear.compose.foundation,androidx.wear.compose.material,androidx.wear.compose.foundation.core" />
+
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
@@ -61,6 +66,7 @@
         </activity>
         <activity-alias
             android:name=".MainActivityAlias"
+            android:enabled="@bool/phone_launcher"
             android:exported="true"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -68,6 +74,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Watch-first UI: becomes the launcher on Wear OS (see values-watch/bools.xml) -->
+        <activity
+            android:name=".WatchActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="@string/launch_name" />
+        <activity-alias
+            android:name=".WatchLauncher"
+            android:enabled="@bool/watch_launcher"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/launch_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".WatchActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
 

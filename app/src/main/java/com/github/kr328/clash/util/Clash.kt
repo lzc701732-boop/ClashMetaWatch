@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.VpnService
 import com.github.kr328.clash.common.compat.startForegroundServiceCompat
 import com.github.kr328.clash.common.constants.Intents
+import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.common.util.intent
 import com.github.kr328.clash.design.store.UiStore
 import com.github.kr328.clash.service.ClashService
@@ -15,7 +16,17 @@ fun Context.startClashService(): Intent? {
     val startTun = UiStore(this).enableVpn
 
     if (startTun) {
-        val vpnRequest = VpnService.prepare(this)
+        val vpnRequest = try {
+            VpnService.prepare(this)
+        } catch (e: Exception) {
+            // Some firmwares (e.g. Samsung Wear OS builds) ship without the
+            // vpn_management system service; prepare() throws an NPE and TUN mode
+            // is impossible on this device. Fall back to proxy-only mode instead
+            // of crashing.
+            Log.w("VPN service unavailable: ${e.message}; starting proxy-only mode")
+            startForegroundServiceCompat(ClashService::class.intent)
+            return null
+        }
         if (vpnRequest != null)
             return vpnRequest
 

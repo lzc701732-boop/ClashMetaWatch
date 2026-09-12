@@ -1,13 +1,16 @@
 package com.github.kr328.clash
 
 import android.app.Application
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import com.github.kr328.clash.common.Global
 import com.github.kr328.clash.common.compat.currentProcessName
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.remote.Remote
 import com.github.kr328.clash.service.util.sendServiceRecreated
 import com.github.kr328.clash.util.clashDir
+import com.github.kr328.clash.util.isWatchUiMode
 import java.io.File
 import java.io.FileOutputStream
 
@@ -29,9 +32,40 @@ class MainApplication : Application() {
         Log.d("Process $processName started")
 
         if (processName == packageName) {
+            applyLauncherMode()
             Remote.launch()
         } else {
             sendServiceRecreated()
+        }
+    }
+
+    // The package manager resolves manifest android:enabled="@bool/..." with the
+    // default resource configuration, so the values-watch launcher gating never
+    // takes effect on its own. Fix the aliases up at runtime instead: on Wear OS
+    // the watch UI is the launcher, on phones the phone UI stays the launcher
+    // (and AppSettingsActivity keeps owning the hide-icon preference).
+    private fun applyLauncherMode() {
+        val watchLauncher = ComponentName(this, "com.github.kr328.clash.WatchLauncher")
+        val phoneLauncher = ComponentName(this, "com.github.kr328.clash.MainActivityAlias")
+        val pm = packageManager
+
+        if (isWatchUiMode()) {
+            pm.setComponentEnabledSetting(
+                watchLauncher,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+            pm.setComponentEnabledSetting(
+                phoneLauncher,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        } else if (pm.getComponentEnabledSetting(watchLauncher) != PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+            pm.setComponentEnabledSetting(
+                watchLauncher,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
+            )
         }
     }
 

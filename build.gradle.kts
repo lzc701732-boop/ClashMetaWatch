@@ -17,6 +17,7 @@ buildscript {
         classpath(libs.build.kotlin.serialization)
         classpath(libs.build.ksp)
         classpath(libs.build.golang)
+        classpath("org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.1.0")
     }
 }
 

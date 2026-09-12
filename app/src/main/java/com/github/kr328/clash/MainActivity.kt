@@ -19,6 +19,7 @@ import com.github.kr328.clash.design.MainDesign
 import com.github.kr328.clash.design.ui.ToastDuration
 import com.github.kr328.clash.util.startClashService
 import com.github.kr328.clash.util.stopClashService
+import com.github.kr328.clash.util.isWatchUiMode
 import com.github.kr328.clash.util.withClash
 import com.github.kr328.clash.util.withProfile
 import com.github.kr328.clash.core.bridge.*
@@ -150,6 +151,15 @@ class MainActivity : BaseActivity<MainDesign>() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Defense in depth: runtime alias switching may lag the very first
+        // launch after install — never show the phone UI on a watch.
+        if (isWatchUiMode()) {
+            startActivity(WatchActivity::class.intent)
+            finish()
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val requestPermissionLauncher =
                 registerForActivityResult(RequestPermission()
