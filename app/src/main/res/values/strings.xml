@@ -26,4 +26,23 @@
     <string name="watch_update_failed">更新失败</string>
     <string name="watch_proxy_need_running">需先启动</string>
     <string name="watch_proxy_timeout">超时</string>
+    <string name="watch_menu_add">＋ 添加配置</string>
+    <string name="watch_add_default_name">新配置</string>
+    <string name="watch_add_name_hint">名称（可选）</string>
+    <string name="watch_add_url_hint">订阅链接</string>
+    <string name="watch_add_import">导入</string>
+    <string name="watch_add_url_empty">请输入订阅链接</string>
+    <string name="watch_delete_mode">删除配置</string>
+    <string name="watch_delete_mode_exit">取消删除</string>
+    <string name="watch_delete_confirm">点击删除</string>
+    <string name="watch_profile_deleted">已删除 %1$s</string>
+    <string name="watch_profile_inactive">点击启用</string>
+    <string name="watch_profile_pending">未导入</string>
+    <string name="watch_profile_pending_hint">该配置未完成导入，可删除后重新添加</string>
+    <string name="watch_menu_providers">订阅源</string>
+    <string name="watch_providers_empty">暂无订阅源</string>
+    <string name="watch_provider_updated">已更新 %1$s</string>
+    <string name="watch_provider_proxy">节点</string>
+    <string name="watch_provider_rule">规则</string>
+    <string name="watch_speed_test">测速</string>
 </resources>

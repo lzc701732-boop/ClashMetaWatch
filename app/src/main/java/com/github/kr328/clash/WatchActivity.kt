@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -52,7 +54,11 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.rememberScalingLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import com.github.kr328.clash.common.util.intent
+import com.github.kr328.clash.core.model.Provider
 import com.github.kr328.clash.core.model.ProxyGroup
 import com.github.kr328.clash.core.model.ProxySort
 import com.github.kr328.clash.log.SystemLogcat
@@ -111,6 +117,14 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
     private var group by mutableStateOf<ProxyGroup?>(null)
     private var crashLog by mutableStateOf<String?>(null)
 
+    // Add-profile form
+    private var addName by mutableStateOf("")
+    private var addUrl by mutableStateOf("")
+
+    // Profiles delete mode & providers
+    private var deleting by mutableStateOf(false)
+    private var providers by mutableStateOf<List<Provider>>(emptyList())
+
     private var trafficJob: Job? = null
 
     private val vpnPermissionLauncher =
@@ -135,8 +149,10 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                 when (target) {
                     Screen.Main -> MainScreen()
                     Screen.Profiles -> ProfilesScreen()
+                    Screen.AddProfile -> AddProfileScreen()
                     Screen.Groups -> GroupsScreen()
                     is Screen.Group -> GroupScreen(target.name)
+                    Screen.Providers -> ProvidersScreen()
                     Screen.CrashLog -> CrashLogScreen()
                 }
             }
@@ -297,7 +313,11 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
 
         scope.launch(Dispatchers.IO) {
             runCatching {
-                withProfile { update(active.uuid) }
+                withProfile { commit(active.uuid, null) }
+            }.onSuccess {
+                busy = false
+                message = getString(R.string.watch_update_done)
+                refresh()
             }.onFailure {
                 busy = false
                 message = it.message
@@ -343,13 +363,134 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         }
     }
 
+    private fun importProfile() {
+        val url = addUrl.trim()
+
+        if (url.isEmpty()) {
+            message = getString(R.string.watch_add_url_empty)
+            return
+        }
+
+        val name = addName.trim().ifEmpty { getString(R.string.watch_add_default_name) }
+
+        busy = true
+        message = getString(R.string.watch_updating)
+
+        scope.launch(Dispatchers.IO) {
+            var importedUuid: UUID? = null
+
+            runCatching {
+                withProfile {
+                    val uuid = create(Profile.Type.Url, name, url)
+                    importedUuid = uuid
+                    // commit() downloads and imports immediately (update() only
+                    // schedules and stalls in pending on this device)
+                    commit(uuid, null)
+                }
+            }.onSuccess {
+                busy = false
+                message = getString(R.string.watch_update_done)
+
+                // Auto-activate the first profile so the user can start right away.
+                val uuid = importedUuid
+                if (uuid != null) {
+                    runCatching {
+                        if (withProfile { queryActive() } == null) {
+                            withProfile { queryByUUID(uuid) }?.let { p ->
+                                withProfile { setActive(p) }
+                            }
+                        }
+                    }
+                }
+
+                screen = Screen.Profiles
+                refresh()
+            }.onFailure {
+                busy = false
+                message = it.message
+            }
+        }
+    }
+
+    private fun deleteProfile(p: Profile) {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                withProfile { delete(p.uuid) }
+            }.onSuccess {
+                deleting = false
+                message = getString(R.string.watch_profile_deleted, p.name)
+
+                // Deleting the active profile leaves a stale active pointer —
+                // move activation to another imported profile if there is one.
+                if (p.active) {
+                    runCatching {
+                        withProfile { queryAll() }
+                            .firstOrNull { it.imported && it.uuid != p.uuid }
+                            ?.let { next -> withProfile { setActive(next) } }
+                    }
+                }
+            }.onFailure {
+                message = it.message
+            }
+
+            refresh()
+        }
+    }
+
+    private fun speedTest(groupName: String) {
+        busy = true
+
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                withClash { healthCheck(groupName) }
+            }.onFailure {
+                message = it.message
+            }
+
+            loadGroup(groupName)
+        }
+    }
+
+    private fun loadProviders() {
+        busy = true
+
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                providers = withClash { queryProviders().toList() }
+            }.onFailure {
+                message = it.message
+            }
+
+            busy = false
+        }
+    }
+
+    private fun updateProviderAction(p: Provider) {
+        busy = true
+
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                withClash { updateProvider(p.type, p.name) }
+            }.onSuccess {
+                message = getString(R.string.watch_provider_updated, p.name)
+            }.onFailure {
+                busy = false
+                message = it.message
+            }
+
+            loadProviders()
+        }
+    }
+
     // Screens
 
     private sealed interface Screen {
         data object Main : Screen
         data object Profiles : Screen
+        data object AddProfile : Screen
         data object Groups : Screen
         data class Group(val name: String) : Screen
+        data object Providers : Screen
         data object CrashLog : Screen
     }
 
@@ -383,6 +524,16 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                     onClick = {
                         screen = Screen.Groups
                         loadGroups()
+                    }
+                )
+            }
+            item {
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_providers),
+                    enabled = running,
+                    onClick = {
+                        screen = Screen.Providers
+                        loadProviders()
                     }
                 )
             }
@@ -566,6 +717,27 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
 
         ScreenContent {
             item { ScreenHeader(stringResource(R.string.watch_menu_profiles)) }
+            item {
+                Chip(
+                    onClick = { screen = Screen.AddProfile },
+                    colors = ChipDefaults.primaryChipColors(
+                        backgroundColor = W.blue,
+                        contentColor = Color.White,
+                        secondaryContentColor = Color(0xFFD6E2FF)
+                    ),
+                    label = { Text(stringResource(R.string.watch_menu_add)) }
+                )
+            }
+            if (profiles.isNotEmpty()) {
+                item {
+                    MenuChip(
+                        label = stringResource(
+                            if (deleting) R.string.watch_delete_mode_exit else R.string.watch_delete_mode
+                        ),
+                        onClick = { deleting = !deleting }
+                    )
+                }
+            }
             if (profiles.isEmpty()) {
                 item {
                     Text(
@@ -580,8 +752,20 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                 val p = profiles[index]
 
                 Chip(
-                    onClick = { selectProfile(p) },
-                    colors = if (p.active)
+                    onClick = {
+                        when {
+                            deleting -> deleteProfile(p)
+                            p.pending -> message = getString(R.string.watch_profile_pending_hint)
+                            else -> selectProfile(p)
+                        }
+                    },
+                    enabled = deleting || !p.pending,
+                    colors = if (deleting)
+                        ChipDefaults.secondaryChipColors(
+                            backgroundColor = W.redDim,
+                            contentColor = W.red
+                        )
+                    else if (p.active)
                         ChipDefaults.primaryChipColors(
                             backgroundColor = W.blue,
                             contentColor = Color.White,
@@ -595,11 +779,105 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                         ),
                     label = { Text(p.name) },
                     secondaryLabel = {
-                        if (p.active) {
-                            Text(stringResource(R.string.watch_profile_active))
-                        }
+                        Text(
+                            text = stringResource(
+                                when {
+                                    deleting -> R.string.watch_delete_confirm
+                                    p.pending -> R.string.watch_profile_pending
+                                    p.active -> R.string.watch_profile_active
+                                    else -> R.string.watch_profile_inactive
+                                }
+                            )
+                        )
                     }
                 )
+            }
+        }
+    }
+
+    @Composable
+    private fun WatchTextField(
+        value: String,
+        onValueChange: (String) -> Unit,
+        placeholder: String
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.body1.copy(
+                color = W.text,
+                textAlign = TextAlign.Center
+            ),
+            cursorBrush = SolidColor(W.blue),
+            decorationBox = { inner ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .background(W.chip, RoundedCornerShape(24.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            color = W.muted,
+                            style = MaterialTheme.typography.body1,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    inner()
+                }
+            }
+        )
+    }
+
+    @Composable
+    private fun AddProfileScreen() {
+        BackHandler {
+            screen = Screen.Profiles
+        }
+
+        ScreenContent {
+            item { ScreenHeader(stringResource(R.string.watch_menu_add)) }
+            item {
+                WatchTextField(
+                    value = addName,
+                    onValueChange = { addName = it },
+                    placeholder = stringResource(R.string.watch_add_name_hint)
+                )
+            }
+            item {
+                WatchTextField(
+                    value = addUrl,
+                    onValueChange = { addUrl = it },
+                    placeholder = stringResource(R.string.watch_add_url_hint)
+                )
+            }
+            item {
+                Chip(
+                    onClick = { importProfile() },
+                    enabled = addUrl.isNotBlank() && !busy,
+                    colors = ChipDefaults.primaryChipColors(
+                        backgroundColor = W.blue,
+                        contentColor = Color.White,
+                        secondaryContentColor = Color(0xFFD6E2FF)
+                    ),
+                    label = { Text(stringResource(R.string.watch_add_import)) }
+                )
+            }
+            if (busy) {
+                item { CircularProgressIndicator(strokeWidth = 3.dp) }
+            }
+            message?.let { msg ->
+                item {
+                    Text(
+                        text = msg,
+                        color = W.red,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.caption1
+                    )
+                }
             }
         }
     }
@@ -639,6 +917,13 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
 
         ScreenContent {
             item { ScreenHeader(name) }
+            item {
+                MenuChip(
+                    label = stringResource(R.string.watch_speed_test),
+                    enabled = !busy,
+                    onClick = { speedTest(name) }
+                )
+            }
             group?.let { g ->
                 items(g.proxies.size) { index ->
                     val proxy = g.proxies[index]
@@ -677,6 +962,50 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                         }
                     )
                 }
+            }
+            if (busy) {
+                item { CircularProgressIndicator(strokeWidth = 3.dp) }
+            }
+        }
+    }
+
+    @Composable
+    private fun ProvidersScreen() {
+        BackHandler {
+            screen = Screen.Main
+        }
+
+        ScreenContent {
+            item { ScreenHeader(stringResource(R.string.watch_menu_providers)) }
+            if (providers.isEmpty() && !busy) {
+                item {
+                    Text(
+                        text = stringResource(R.string.watch_providers_empty),
+                        textAlign = TextAlign.Center,
+                        color = W.muted,
+                        style = MaterialTheme.typography.caption1
+                    )
+                }
+            }
+            items(providers.size) { index ->
+                val provider = providers[index]
+
+                Chip(
+                    onClick = { updateProviderAction(provider) },
+                    enabled = !busy,
+                    colors = ChipDefaults.secondaryChipColors(
+                        backgroundColor = W.chip,
+                        contentColor = W.text,
+                        secondaryContentColor = W.muted
+                    ),
+                    label = { Text(provider.name) },
+                    secondaryLabel = {
+                        Text(
+                            text = "${stringResource(if (provider.type == Provider.Type.Proxy) R.string.watch_provider_proxy else R.string.watch_provider_rule)} · ${formatProviderTime(provider.updatedAt)}",
+                            style = MaterialTheme.typography.caption2
+                        )
+                    }
+                )
             }
             if (busy) {
                 item { CircularProgressIndicator(strokeWidth = 3.dp) }
@@ -741,5 +1070,11 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         if (bytes < 1024 * 1024) return "%.1f KB".format(bytes / 1024f)
         if (bytes < 1024 * 1024 * 1024) return "%.1f MB".format(bytes / 1024f / 1024f)
         return "%.2f GB".format(bytes / 1024f / 1024f / 1024f)
+    }
+
+    private fun formatProviderTime(epochMillis: Long): String {
+        if (epochMillis <= 0) return "--"
+        return java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(epochMillis))
     }
 }
