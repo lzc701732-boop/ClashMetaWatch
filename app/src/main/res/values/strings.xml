@@ -19,9 +19,11 @@
     <string name="watch_ready">就绪</string>
     <string name="watch_profiles_empty">暂无配置\n通过 clash://install-config?url=… 导入</string>
     <string name="watch_profile_active">当前使用</string>
+    <string name="watch_traffic_used">已用流量</string>
     <string name="watch_profile_selected">已切换: %1$s</string>
     <string name="watch_updating">正在更新…</string>
     <string name="watch_update_done">更新完成</string>
     <string name="watch_update_failed">更新失败</string>
     <string name="watch_proxy_need_running">需先启动</string>
+    <string name="watch_proxy_timeout">超时</string>
 </resources>

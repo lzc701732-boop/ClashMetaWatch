@@ -6,15 +6,43 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
@@ -43,6 +71,28 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+// Design tokens: OLED-black base, brand blue for actions only, green strictly
+// for the connected state, red for stop/error. All screens share these.
+private object W {
+    val blue = Color(0xFF4E7CFF)
+    val blueDim = Color(0xFF2A3A66)
+    val green = Color(0xFF2ECC71)
+    val amber = Color(0xFFF5B93E)
+    val red = Color(0xFFFF5D5D)
+    val redDim = Color(0xFF38202A)
+    val text = Color(0xFFE8EDF7)
+    val muted = Color(0xFF9AA6BF)
+    val slate = Color(0xFF76829B)
+    val chip = Color(0xFF1B2236)
+
+    fun delayColor(ms: Int): Color = when {
+        ms <= 0 -> red
+        ms < 300 -> green
+        ms < 800 -> amber
+        else -> red
+    }
+}
 
 // Watch-first UI. Opens as the launcher on Wear OS devices (see WatchLauncher
 // activity-alias in AndroidManifest.xml); on phones the original UI stays default.
@@ -74,12 +124,19 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
-                when (val s = screen) {
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    (fadeIn(tween(180)) + scaleIn(initialScale = 0.94f, animationSpec = tween(180))) togetherWith
+                        fadeOut(tween(120))
+                },
+                label = "screen"
+            ) { target ->
+                when (target) {
                     Screen.Main -> MainScreen()
                     Screen.Profiles -> ProfilesScreen()
                     Screen.Groups -> GroupsScreen()
-                    is Screen.Group -> GroupScreen(s.name)
+                    is Screen.Group -> GroupScreen(target.name)
                     Screen.CrashLog -> CrashLogScreen()
                 }
             }
@@ -302,99 +359,60 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
             finish()
         }
 
-        ScreenContent {
-            item {
-                Text(
-                    text = profileName
-                        ?: stringResource(if (profiles.isEmpty()) R.string.watch_no_profile else R.string.watch_ready),
-                    color = MaterialTheme.colors.primary,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
-                )
+        message?.let { msg ->
+            androidx.compose.runtime.LaunchedEffect(msg) {
+                delay(4000)
+                message = null
             }
-            item {
-                Text(
-                    text = stringResource(if (running) R.string.watch_status_running else R.string.watch_status_stopped),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.title2
-                )
-            }
-            item {
-                androidx.compose.foundation.layout.Column(
-                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
-                ) {
-                    Button(
-                        onClick = { toggle() },
-                        colors = ButtonDefaults.primaryButtonColors()
-                    ) {
-                        Text(
-                            text = stringResource(
-                                if (running) R.string.watch_toggle_stop else R.string.watch_toggle_start
-                            )
-                        )
-                    }
+        }
 
-                    if (running && trafficTotal > 0) {
-                        Text(
-                            text = formatBytes(trafficTotal),
-                            style = MaterialTheme.typography.caption2
-                        )
-                    }
-                }
-            }
+        ScreenContent {
+            item { StatusHero() }
+            item { ToggleButton() }
             item {
-                Chip(
-                    onClick = { screen = Screen.Profiles },
-                    colors = ChipDefaults.primaryChipColors(),
-                    label = { Text(stringResource(R.string.watch_menu_profiles)) }
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_profiles),
+                    onClick = { screen = Screen.Profiles }
                 )
             }
             item {
-                Chip(
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_proxy),
+                    enabled = running,
+                    hint = if (!running) stringResource(R.string.watch_proxy_need_running) else null,
                     onClick = {
                         screen = Screen.Groups
                         loadGroups()
-                    },
-                    enabled = running,
-                    colors = ChipDefaults.primaryChipColors(),
-                    label = { Text(stringResource(R.string.watch_menu_proxy)) },
-                    secondaryLabel = {
-                        if (!running) {
-                            Text(stringResource(R.string.watch_proxy_need_running))
-                        }
                     }
                 )
             }
             item {
-                Chip(
-                    onClick = { updateActiveProfile() },
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_profiles_update),
                     enabled = !busy && profiles.any { it.active && it.type == Profile.Type.Url },
-                    colors = ChipDefaults.primaryChipColors(),
-                    label = { Text(stringResource(R.string.watch_menu_profiles_update)) }
+                    onClick = { updateActiveProfile() }
                 )
             }
             item {
-                Chip(
-                    onClick = { startActivity(MainActivity::class.intent) },
-                    colors = ChipDefaults.secondaryChipColors(),
-                    label = { Text(stringResource(R.string.watch_menu_full_ui)) }
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_full_ui),
+                    onClick = { startActivity(MainActivity::class.intent) }
                 )
             }
             item {
-                Chip(
-                    onClick = { screen = Screen.CrashLog },
-                    colors = ChipDefaults.secondaryChipColors(),
-                    label = { Text(stringResource(R.string.watch_menu_crash_log)) }
+                MenuChip(
+                    label = stringResource(R.string.watch_menu_crash_log),
+                    onClick = { screen = Screen.CrashLog }
                 )
             }
             if (busy) {
-                item { CircularProgressIndicator() }
+                item { CircularProgressIndicator(strokeWidth = 3.dp) }
             }
             message?.let { msg ->
                 item {
                     Text(
                         text = msg,
-                        color = MaterialTheme.colors.error,
+                        color = W.red,
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.caption1
                     )
@@ -404,25 +422,156 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
     }
 
     @Composable
+    private fun StatusHero() {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = profileName
+                    ?: stringResource(if (profiles.isEmpty()) R.string.watch_no_profile else R.string.watch_ready),
+                color = W.muted,
+                style = MaterialTheme.typography.caption1,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(running = running)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(
+                        if (running) R.string.watch_status_running else R.string.watch_status_stopped
+                    ),
+                    color = if (running) W.green else W.slate,
+                    style = MaterialTheme.typography.title1,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            AnimatedVisibility(visible = running && trafficTotal > 0) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = formatBytes(trafficTotal),
+                        color = W.text,
+                        style = MaterialTheme.typography.title3.copy(fontFeatureSettings = "tnum")
+                    )
+                    Text(
+                        text = stringResource(R.string.watch_traffic_used),
+                        color = W.muted,
+                        style = MaterialTheme.typography.caption2
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StatusDot(running: Boolean) {
+        if (running) {
+            val transition = rememberInfiniteTransition(label = "pulse")
+            val alpha by transition.animateFloat(
+                initialValue = 0.15f,
+                targetValue = 0.9f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1100, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulseAlpha"
+            )
+            val scale by transition.animateFloat(
+                initialValue = 0.8f,
+                targetValue = 1.3f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1100, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulseScale"
+            )
+
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .scale(scale)
+                    .alpha(alpha)
+                    .background(W.green, CircleShape)
+            )
+        } else {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .alpha(0.45f)
+                    .background(W.slate, CircleShape)
+            )
+        }
+    }
+
+    @Composable
+    private fun ToggleButton() {
+        if (running) {
+            Button(
+                onClick = { toggle() },
+                colors = ButtonDefaults.buttonColors(
+                    backgroundColor = W.redDim,
+                    contentColor = W.red
+                )
+            ) {
+                Text(stringResource(R.string.watch_toggle_stop))
+            }
+        } else {
+            Button(
+                onClick = { toggle() },
+                colors = ButtonDefaults.buttonColors(
+                    backgroundColor = W.blue,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(stringResource(R.string.watch_toggle_start))
+            }
+        }
+    }
+
+    @Composable
+    private fun MenuChip(
+        label: String,
+        enabled: Boolean = true,
+        hint: String? = null,
+        onClick: () -> Unit
+    ) {
+        Chip(
+            onClick = onClick,
+            enabled = enabled,
+            colors = ChipDefaults.secondaryChipColors(
+                backgroundColor = W.chip,
+                contentColor = W.text,
+                secondaryContentColor = W.muted
+            ),
+            label = { Text(label) },
+            secondaryLabel = hint?.let { h -> { Text(h) } }
+        )
+    }
+
+    @Composable
+    private fun ScreenHeader(title: String) {
+        Text(
+            text = title,
+            color = W.muted,
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.caption1
+        )
+    }
+
+    @Composable
     private fun ProfilesScreen() {
         BackHandler {
             screen = Screen.Main
         }
 
         ScreenContent {
-            item {
-                Text(
-                    text = stringResource(R.string.watch_menu_profiles),
-                    color = MaterialTheme.colors.primary,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            item { ScreenHeader(stringResource(R.string.watch_menu_profiles)) }
             if (profiles.isEmpty()) {
                 item {
                     Text(
                         text = stringResource(R.string.watch_profiles_empty),
                         textAlign = TextAlign.Center,
+                        color = W.muted,
                         style = MaterialTheme.typography.caption1
                     )
                 }
@@ -432,7 +581,18 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
 
                 Chip(
                     onClick = { selectProfile(p) },
-                    colors = if (p.active) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                    colors = if (p.active)
+                        ChipDefaults.primaryChipColors(
+                            backgroundColor = W.blue,
+                            contentColor = Color.White,
+                            secondaryContentColor = Color(0xFFD6E2FF)
+                        )
+                    else
+                        ChipDefaults.secondaryChipColors(
+                            backgroundColor = W.chip,
+                            contentColor = W.text,
+                            secondaryContentColor = W.muted
+                        ),
                     label = { Text(p.name) },
                     secondaryLabel = {
                         if (p.active) {
@@ -451,14 +611,7 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         }
 
         ScreenContent {
-            item {
-                Text(
-                    text = stringResource(R.string.watch_menu_proxy),
-                    color = MaterialTheme.colors.primary,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            item { ScreenHeader(stringResource(R.string.watch_menu_proxy)) }
             items(groups.size) { index ->
                 val name = groups[index]
 
@@ -467,7 +620,11 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                         screen = Screen.Group(name)
                         loadGroup(name)
                     },
-                    colors = ChipDefaults.secondaryChipColors(),
+                    colors = ChipDefaults.secondaryChipColors(
+                        backgroundColor = W.chip,
+                        contentColor = W.text,
+                        secondaryContentColor = W.muted
+                    ),
                     label = { Text(name) }
                 )
             }
@@ -481,29 +638,48 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         }
 
         ScreenContent {
-            item {
-                Text(
-                    text = name,
-                    color = MaterialTheme.colors.primary,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            item { ScreenHeader(name) }
             group?.let { g ->
                 items(g.proxies.size) { index ->
                     val proxy = g.proxies[index]
+                    val selected = proxy.name == g.now
 
                     Chip(
                         onClick = { patchSelector(name, proxy.name) },
-                        colors = if (proxy.name == g.now) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
-                        label = { Text(if (proxy.name == g.now) "✓ ${proxy.name}" else proxy.name) },
+                        colors = if (selected)
+                            ChipDefaults.primaryChipColors(
+                                backgroundColor = W.blue,
+                                contentColor = Color.White,
+                                secondaryContentColor = Color(0xFFD6E2FF)
+                            )
+                        else
+                            ChipDefaults.secondaryChipColors(
+                                backgroundColor = W.chip,
+                                contentColor = W.text,
+                                secondaryContentColor = W.muted
+                            ),
+                        label = { Text(if (selected) "✓ ${proxy.name}" else proxy.name) },
                         secondaryLabel = {
-                            if (proxy.delay > 0) {
-                                Text("${proxy.delay}ms")
+                            // 65535 is mihomo's health-check timeout sentinel
+                            if (proxy.delay <= 0) {
+                                if (!selected) Text(text = "--", color = W.slate)
+                            } else if (proxy.delay >= 65530) {
+                                Text(
+                                    text = stringResource(R.string.watch_proxy_timeout),
+                                    color = if (selected) Color(0xFFD6E2FF) else W.red
+                                )
+                            } else {
+                                Text(
+                                    text = "${proxy.delay}ms",
+                                    color = if (selected) Color(0xFFD6E2FF) else W.delayColor(proxy.delay)
+                                )
                             }
                         }
                     )
                 }
+            }
+            if (busy) {
+                item { CircularProgressIndicator(strokeWidth = 3.dp) }
             }
         }
     }
@@ -517,14 +693,7 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         val log = crashLog
 
         ScreenContent {
-            item {
-                Text(
-                    text = stringResource(R.string.watch_menu_crash_log),
-                    color = MaterialTheme.colors.primary,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            item { ScreenHeader(stringResource(R.string.watch_menu_crash_log)) }
             item {
                 Chip(
                     onClick = {
@@ -535,13 +704,18 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
                             }
                         }
                     },
-                    colors = ChipDefaults.primaryChipColors(),
+                    colors = ChipDefaults.secondaryChipColors(
+                        backgroundColor = W.chip,
+                        contentColor = W.text,
+                        secondaryContentColor = W.muted
+                    ),
                     label = { Text("刷新 / Refresh") }
                 )
             }
             item {
                 Text(
                     text = log ?: stringResource(R.string.watch_crash_log_hint),
+                    color = W.muted,
                     style = MaterialTheme.typography.caption2
                 )
             }
@@ -556,6 +730,8 @@ class WatchActivity : ComponentActivity(), Broadcasts.Observer {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             content = content
         )
     }
